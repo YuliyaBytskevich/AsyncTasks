@@ -1,6 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
 using System.Linq;
+using System.Net;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -17,8 +20,24 @@ namespace Task
         /// <returns>The sequence of downloaded url content</returns>
         public static IEnumerable<string> GetUrlContent(this IEnumerable<Uri> uris)
         {
-            // TODO : Implement GetUrlContent
-            throw new NotImplementedException();
+            IEnumerable<string> resultContent = new List<string>();
+            foreach (var uri in uris)
+            {
+                var webRequest = WebRequest.Create(uri);
+                using (var response = webRequest.GetResponse())
+                using (var content = response.GetResponseStream())
+                    if (content != null)
+                        using (var reader = new StreamReader(content))
+                        {
+                            var strContent = reader.ReadToEnd();
+                            ((List<string>) resultContent).Add(strContent);
+                        }
+                    else
+                    {
+                        ((List<string>)resultContent).Add(uri + "fail with geting content");
+                    }
+            }
+            return resultContent;
         }
 
         /// <summary>
@@ -33,9 +52,56 @@ namespace Task
         /// <returns>The sequence of downloaded url content</returns>
         public static IEnumerable<string> GetUrlContentAsync(this IEnumerable<Uri> uris, int maxConcurrentStreams)
         {
-            // TODO : Implement GetUrlContentAsync
-            throw new NotImplementedException();
+            return RunTasksThatGetContent(uris, maxConcurrentStreams).GetAwaiter().GetResult();
         }
+
+        private static async Task<IEnumerable<string>> RunTasksThatGetContent(IEnumerable<Uri> uris, int throttle)
+        {
+            IEnumerable<string> resultContent = new List<string>();
+            var tasks = new List<Task<string>>();
+            for (var n = 0; n < uris.Count(); n++)
+            {
+                var task = GettingContentForUri(uris.ToArray()[n]);
+                tasks.Add(task);
+                if (tasks.Count == throttle)
+                {
+                    await System.Threading.Tasks.Task.WhenAll(tasks);
+                    foreach (var completed in tasks)
+                    {
+                        ((List<string>)resultContent).Add(completed.Result);
+                    }
+                    tasks.Clear();
+                }
+            }
+            await System.Threading.Tasks.Task.WhenAll(tasks);
+            foreach (var completed in tasks)
+            {
+                ((List<string>)resultContent).Add(completed.Result);
+            }
+            return resultContent;
+        }
+
+        private static Task<string> GettingContentForUri(Uri uri)
+        {
+            return Task<string>.Run(() =>
+            {
+                var webRequest = WebRequest.Create(uri);
+                using (var response = webRequest.GetResponse())
+                using (var content = response.GetResponseStream())
+                    if (content != null)
+                        using (var reader = new StreamReader(content))
+                        {
+                            var strContent = reader.ReadToEnd();
+                            return strContent;
+                        }
+                    else
+                    {
+                        return "fail with geting content";
+                    }
+            });
+        }
+
+       // private Task<IEnumerable<string>> 
 
         /// <summary>
         /// Calculates MD5 hash of required resource.
